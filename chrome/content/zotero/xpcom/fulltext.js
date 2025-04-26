@@ -332,7 +332,7 @@ Zotero.Fulltext = Zotero.FullText = new function(){
 		}
 		
 		var maxLength = Zotero.Prefs.get('fulltext.textMaxLength');
-		if (!maxLength) {
+		if (maxLength === 0) {
 			return false;
 		}
 		var text = document.documentElement.innerText;
@@ -342,9 +342,11 @@ Zotero.Fulltext = Zotero.FullText = new function(){
 			yield writeCacheFile(item, text, maxLength);
 		}
 		
-		if (totalChars > maxLength) {
+		// Only limit text length if maxLength is positive
+		if (maxLength > 0 && totalChars > maxLength) {
 			Zotero.debug('Only indexing first ' + maxLength + ' characters of item '
 				+ itemID + ' in indexDocument()');
+			text = text.substr(0, maxLength);
 		}
 		
 		yield indexString(
@@ -365,9 +367,13 @@ Zotero.Fulltext = Zotero.FullText = new function(){
 	 */
 	this.indexPDF = async function (filePath, itemID, allPages) {
 		var maxPages = Zotero.Prefs.get('fulltext.pdfMaxPages');
-		if (maxPages == 0) {
+		// If maxPages is 0, skip indexing entirely
+		if (maxPages === 0) {
 			return false;
 		}
+		// If maxPages is negative, remove the limit by treating it as unlimited
+		let effectiveMaxPages = maxPages < 0 ? null : maxPages;
+	
 		var item = await Zotero.Items.getAsync(itemID);
 		var linkMode = item.attachmentLinkMode;
 		// If file is stored outside of Zotero, create a directory for the item
@@ -384,7 +390,7 @@ Zotero.Fulltext = Zotero.FullText = new function(){
 				text,
 				extractedPages,
 				totalPages
-			} = await Zotero.PDFWorker.getFullText(itemID, allPages ? null : maxPages);
+			} = await Zotero.PDFWorker.getFullText(itemID, effectiveMaxPages);
 		}
 		catch (e) {
 			Zotero.logError(e);
@@ -429,7 +435,8 @@ Zotero.Fulltext = Zotero.FullText = new function(){
 				
 				let bodyText = doc.body.innerText;
 				totalChars += bodyText.length;
-				if (!allText) {
+				// Don't limit if maxLength is negative or allText is true
+				if (!allText && maxLength > 0 && text.length + bodyText.length > maxLength) {
 					bodyText = bodyText.substring(0, maxLength - text.length);
 				}
 				text += bodyText;
@@ -1636,7 +1643,8 @@ Zotero.Fulltext = Zotero.FullText = new function(){
 	 * Write the converted text to a cache file
 	 */
 	var writeCacheFile = async function (item, text, maxLength, complete) {
-		if (!complete) {
+		// Limit the text length only if maxLength is positive and the indexing is not marked as complete
+		if (!complete && maxLength > 0) {
 			text = text.substr(0, maxLength);
 		}
 		var cacheFile = this.getItemCacheFile(item).path;
